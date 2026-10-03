@@ -1,4 +1,4 @@
-# salmon-desktop-control 运行依赖（Windows，Python 3.10+ 实测 3.13）
+# salmon-desktop-control 运行依赖（Windows，Python 3.10+，本机 3.13 实测）
 # 装法：pip install -r requirements.txt
 pyautogui>=0.9.54
 mss>=9.0.1
