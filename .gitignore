@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+*.pid
+shots/
+*.log
+.DS_Store
