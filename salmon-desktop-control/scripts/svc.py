@@ -36,6 +36,7 @@ import threading
 import subprocess
 import tempfile
 import argparse
+import ctypes
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -189,16 +190,42 @@ def _daemon_request(cmd, timeout=_OCR_TIMEOUT_DEFAULT):
             return {"ok": False, "error": "ocr_daemon_bad_json"}
 
 
+def _ascii_tmp_dir():
+    """v1.5.0：cv2.imwrite 在非 ASCII 路径上会直接返回 False——中文账户的 TEMP 目录
+    正好是这种（用户名是中文），表现为 OCR 报 img_write_fail。
+    所以给 OCR 临时图挑一个一定全 ASCII 且可写的目录。"""
+    bases = [os.environ.get("ProgramData") or "C:/ProgramData",
+             "C:/salmon_tmp", tempfile.gettempdir()]
+    for base in bases:
+        try:
+            d = os.path.join(base, "salmon_tmp")
+            if any(ord(c) > 127 for c in d):
+                continue
+            os.makedirs(d, exist_ok=True)
+            probe = os.path.join(d, "w.tmp")
+            with open(probe, "wb") as f:
+                f.write(b"x")
+            os.remove(probe)
+            return d
+        except Exception:
+            continue
+    return None
+
+
+_OCR_TMP = _ascii_tmp_dir()
+
+
 def _run_ocr_worker(img, max_side=1280, timeout=_OCR_TIMEOUT_DEFAULT):
     """把图片交给常驻 OCR daemon 做 OCR，返回 {ok,count,items} 或 {ok:False,error}。
     items 坐标为图片本地坐标系（已按缩放还原），屏幕偏移由调用方叠加。
     图片走临时 png 文件（daemon 与 svc 同机，文件 IO ~几 ms，远小于传输 base64 的开销）。
     """
-    fd, path = tempfile.mkstemp(suffix=".png", prefix="ocr_")
+    fd, path = tempfile.mkstemp(suffix=".png", prefix="ocr_", dir=_OCR_TMP)
     os.close(fd)
     try:
         if not cv2.imwrite(path, img):
-            return {"ok": False, "error": "img_write_fail"}
+            return {"ok": False, "error": "img_write_fail",
+                    "hint": "cv2.imwrite 失败，当前临时目录 %s" % (_OCR_TMP,)}
         data = _daemon_request({"img": path, "max_side": int(max_side)}, timeout=timeout)
         return data if isinstance(data, dict) else {"ok": False, "error": "bad_daemon_reply"}
     finally:
@@ -733,6 +760,61 @@ def op_move(a):
     return {"ok": True, "x": x, "y": y}
 
 
+# ---- v1.5.0：相对鼠标移动 ----
+# 为什么不能用 pyautogui.moveTo：它发的是 MOUSEEVENTF_ABSOLUTE|VIRTUALDESK，
+# 游戏（DirectInput / Raw Input）只读"相对位移"，于是绝对定位对视角完全无效。
+# 这里直接 SendInput 一条不带 ABSOLUTE 标志的 MOUSEEVENTF_MOVE。
+class _MI(ctypes.Structure):
+    _fields_ = [("dx", ctypes.c_long), ("dy", ctypes.c_long),
+                ("mouseData", ctypes.c_ulong), ("dwFlags", ctypes.c_ulong),
+                ("time", ctypes.c_ulong), ("extra", ctypes.c_void_p)]
+
+
+class _II(ctypes.Union):
+    _fields_ = [("mi", _MI), ("pad", ctypes.c_byte * 32)]
+
+
+class _SI(ctypes.Structure):
+    _fields_ = [("type", ctypes.c_ulong), ("ii", _II)]
+
+
+_MI_MOVE = 0x0001
+
+
+def _send_rel(dx, dy):
+    inp = _SI()
+    inp.type = 0                      # INPUT_MOUSE
+    inp.ii.mi.dx = int(dx)
+    inp.ii.mi.dy = int(dy)
+    inp.ii.mi.dwFlags = _MI_MOVE      # 只给 MOVE，不给 ABSOLUTE
+    return int(ctypes.windll.user32.SendInput(1, ctypes.byref(inp), ctypes.sizeof(_SI)))
+
+
+def op_move_rel(a):
+    """相对移动鼠标 = 转视角。--dx 120 --dy -40 [--steps 6 --interval 0.02]"""
+    dx, dy = int(a.get("dx", 0)), int(a.get("dy", 0))
+    steps = max(1, int(a.get("steps", 1)))
+    gap = float(a.get("interval", 0.0))
+    sent = 0
+    for _ in range(steps):
+        sent += _send_rel(float(dx) / steps, float(dy) / steps)
+        if gap:
+            time.sleep(gap)
+    cur = pyautogui.position()
+    return {"ok": True, "dx": dx, "dy": dy, "steps": steps, "sent": sent,
+            "cursor": [cur.x, cur.y], "sizeof_INPUT": ctypes.sizeof(_SI)}
+
+
+def op_mouse_hold(a):
+    """按住鼠标键若干秒再松（挖矿/蓄力）。--button left --hold 1.5"""
+    btn = a.get("button", "left")
+    hold = max(0.0, float(a.get("hold", 0.5)))
+    pyautogui.mouseDown(button=btn)
+    time.sleep(hold)
+    pyautogui.mouseUp(button=btn)
+    return {"ok": True, "button": btn, "hold_s": hold}
+
+
 def op_click(a):
     x, y = a.get("x"), a.get("y")
     btn = a.get("button", "left")
@@ -906,9 +988,9 @@ def op_win_activate(a):
 
 
 # ---------- 窗口「快照 / 还原」（第 6 轮：解决"操控完窗口找不回来"） ----------
-# 血泪背景：为了让 OCR 拍到目标窗口，需要把宿主客户端挪开/隐藏。但此前
+# 血泪背景：为了让 OCR 拍到目标窗口，需要把 WorkBuddy 挪开/隐藏。但此前
 # win-move / win-hide 是"单向"的——做完活没还原，用户回到电脑前发现
-# 宿主客户端不见了（挪到屏幕外）或打不开（被压成全屏大小盖住一切）。
+# WorkBuddy 不见了（挪到屏幕外）或打不开（被压成全屏大小盖住一切）。
 #
 # 设计：
 #   * _WIN_SNAP：进程内快照表 {hwnd: {x,y,w,h,zoomed,iconic,hidden}}
@@ -1078,8 +1160,8 @@ def op_win_show(a):
 def op_win_move(a):
     """把窗口整体挪走 / 挪回（MoveWindow）。
 
-    ★ 存在意义（§0.5.4 教训 1）：操控会话期间宿主客户端会抢前台，导致 OCR 读到的
-      "按钮"全是聊天记录文字。文档要求"把宿主客户端 MoveWindow 移出屏幕（x=-2400）"，
+    ★ 存在意义（§0.5.4 教训 1）：操控会话期间 WorkBuddy 会抢前台，导致 OCR 读到的
+      "按钮"全是聊天记录文字。文档要求"把 WorkBuddy MoveWindow 移出屏幕（x=-2400）"，
       但此前没有任何 op 能做这件事 —— 这里补上。
 
     用法：
@@ -1092,12 +1174,12 @@ def op_win_move(a):
 
     ★ 坑 1：**最大化的窗口直接 MoveWindow 会被系统立刻弹回原位**。
     ★ 坑 2（第 6 轮实测，更要命）：**对最大化窗口先 SW_RESTORE(9) 再 MoveWindow
-      也不行** —— 宿主客户端这类 Electron 应用收到尺寸变化后会**自己重新最大化**，
+      也不行** —— WorkBuddy 这类 Electron 应用收到尺寸变化后会**自己重新最大化**，
       实测坐标纹丝不动、IsZoomed 仍为 True。
       **正确解法：SW_NORMAL(1) 取消最大化 → 等 300ms → SetWindowPos(带
       SWP_NOZORDER|SWP_NOACTIVATE|SWP_FRAMECHANGED) 移动**。SW_NORMAL 不改
       z-order 也不激活，应用不会触发重新最大化；SetWindowPos 比 MoveWindow
-      对"移动+改尺寸"的原子性更好。实测宿主客户端 3118x1966(最大化) →
+      对"移动+改尺寸"的原子性更好。实测 WorkBuddy 3118x1966(最大化) →
       1600x1500@(60,60) 一次成功。
     """
     import ctypes
@@ -2117,6 +2199,8 @@ HANDLERS = {
     "key-down": op_key_down, "key-up": op_key_up,
     "mouse-down": op_mouse_down, "mouse-up": op_mouse_up,
     "key-hold": op_key_hold, "sleep": op_sleep,
+    # v1.5.0 新增（游戏操控）
+    "move-rel": op_move_rel, "mouse-hold": op_mouse_hold,
     "win-front": op_win_front, "find-color": op_find_color, "guard": op_guard,
     "probe": op_probe,
 }
@@ -2132,11 +2216,18 @@ _BOOT_TS = _now()
 # 所以把触发权从模型手里拿走：出问题时在返回 JSON 里附一行可照做的 hint + 该读的文件路径。
 # 只在真出问题时加字段，正常结果零污染。
 # ---------------------------------------------------------------------------
-APX = "SKILL.md"          # 场景附录是作者本地的外置文档，未随本仓库发布；
-# 因此所有 must_read 一律指回本文，机制保留、指向不变坏。
-SCENE = {k: "SKILL.md" for k in (
-    "installer", "webform", "miniprogram", "cloud", "gui_launch",
-    "marathon", "banner", "color", "dialog")}
+APX = "E:/C_Drive_Reloc/Libraries/Documents/三文鱼大模型附录"
+SCENE = {
+    "installer": APX + "/场景-安装器与提权窗口/安装器与UIPI边界.md",
+    "webform": APX + "/场景-网页表单与输入法/网页表单与输入法干扰.md",
+    "miniprogram": APX + "/场景-微信开发者工具与小程序/模拟器点击与原生picker.md",
+    "cloud": APX + "/场景-微信开发者工具与小程序/云开发控制台实操.md",
+    "gui_launch": APX + "/场景-沙箱里启动GUI/沙箱启动GUI.md",
+    "marathon": APX + "/场景-长跑闭环与OCR校验/马拉松长跑闭环.md",
+    "banner": APX + "/场景-banner操作横幅/banner历史bug复盘.md",
+    "color": APX + "/场景-色彩取值与通道顺序/RB通道互换复盘.md",
+    "dialog": APX + "/场景-桌面客户端与文件对话框/文件对话框与splash卡死.md",
+}
 _LAST_CAP = {}          # 上一次 _capture 用了哪个形态、是否带 region/hwnd
 _REQ_SEQ = [0]          # 请求序号：_LAST_CAP 只对本请求有效，防止跨请求残留误导提示
 _ELEV_CACHE = {}

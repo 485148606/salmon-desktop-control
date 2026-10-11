@@ -207,11 +207,11 @@ WGC 的第三方绑定会在建立会话时 access violation 打死宿主进程�
 ## 版本与缺陷台账 · Version & defect ledger
 
 `SKILL.md` 的 §13 是一张 19 条的缺陷台账：每条写"什么时候发现、现在还在不在、用什么绕"。
-这是本项目最有价值的部分之一——新接手的人不必重新交同一份学费。当前版本 v1.3.6。
+这是本项目最有价值的部分之一——新接手的人不必重新交同一份学费。当前版本 v1.5.0。
 
 > §13 of `SKILL.md` is a 19-entry defect ledger: when each issue was found, whether it still bites,
 > and what works around it. It is arguably the most valuable part of this project — nobody has to pay
-> the same tuition twice. Current version: v1.3.6.
+> the same tuition twice. Current version: v1.5.0.
 
 ## 许可 · License
 

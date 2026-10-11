@@ -22,15 +22,15 @@
   python mc.py hotkey --keys "ctrl,s"
   python mc.py pos
   python mc.py color --x 100 --y 200
-  python mc.py win-list [--keyword 某聊天工具] [--pid 1234]
+  python mc.py win-list [--keyword 微信] [--pid 1234]
   python mc.py win-activate --hwnd 4915506
   python mc.py win-hide --hwnd 25755890
-  python mc.py win-stash --hwnd 25755890 --reason "OCR期间藏起宿主客户端"   # 推荐：藏 + 打快照
+  python mc.py win-stash --hwnd 25755890 --reason "OCR期间藏起WorkBuddy"   # 推荐：藏 + 打快照
   python mc.py win-restore --hwnd 25755890          # 按快照还原单个
   python mc.py win-restore-all                      # 还原全部（收尾必调）
   python mc.py win-stash-list                       # 看还有谁没还原
   python mc.py wake
-  python mc.py banner --subtitle "正在打开某聊天工具 / 第 1 步"   # 第5轮：屏幕顶部横幅更新（title 缺省保留）
+  python mc.py banner --subtitle "正在打开微信 / 第 1 步"   # 第5轮：屏幕顶部横幅更新（title 缺省保留）
   python mc.py banner --title "三文鱼大模型正在操控屏幕，请勿触碰" --subtitle "..."
   python mc.py banner-hide                                   # 第5轮：自动化结束收尾，关闭横幅
   python mc.py batch --json '[{"op":"shot","out":"D:/a.png"},{"op":"click-text","text":"下一步"}]'
@@ -156,7 +156,7 @@ def http_post(url, payload, timeout=180):
 def _spawn_detached(py, args):
     """以完全脱离的方式启动 svc。
 
-    关键：从 Bash/宿主客户端工具启动的后台进程会随该次调用结束被整个进程组
+    关键：从 Bash/WorkBuddy 工具启动的后台进程会随该次调用结束被整个进程组
     回收（即便 DETACHED_PROCESS + CREATE_NEW_PROCESS_GROUP 也不一定够），
     导致 svc 每次都被杀掉重启（表现为每次都慢 3-5 秒 + `_svc_booted: true`）。
     真正最稳的方案：cmd /c start /B —— Windows 的 `start` 内部用 CreateProcess
@@ -317,7 +317,7 @@ def main():
     base, booted = ensure_svc(port)
 
     # ---- 第 6 轮安全网：window 类 op 的收尾自动还原 ----
-    # 背景：把宿主客户端藏起来/挪走之后忘了还原，用户回到电脑前发现窗口
+    # 背景：把 WorkBuddy 藏起来/挪走之后忘了还原，用户回到电脑前发现窗口
     # 不见了（已发生过一次，用户来问"为什么打不开"）。
     # 约定：win-stash / win-move / win-hide 默认在**本次命令结束时**立刻还原。
     # 需要跨多条命令保持隐藏的（例如连续多次 shot+OCR），显式加

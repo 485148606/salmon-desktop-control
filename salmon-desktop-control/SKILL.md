@@ -1,5 +1,5 @@
 ---
-name: 三文鱼大模型 v1.3.6
+name: 三文鱼大模型 v1.5.0
 description: >-
   桌面级 UI 自动化技能（Windows）。控制鼠标（移动/单击/双击/右键/拖拽/滚轮/按住）与键盘
   （打字/快捷键/后台投递），并用屏幕图像识别定位 UI：整屏或区域截图、按窗口截图
@@ -9,38 +9,47 @@ description: >-
   拖拽/滚动」「找 XX 在哪、给坐标」「识别屏幕上的文字」「截图看屏幕」「模拟键盘输入/快捷键」
   「三文鱼大模型 / 桌面鼠标控制」「实时看画面去操控游戏」时使用。
   正文只保留每次动手都生效的核心规则；各场景的实战细节按 §0 场景索引外置，命中才读。
-display_name: 三文鱼大模型 v1.3.6
+display_name: 三文鱼大模型 v1.5.0
 alias: [三文鱼大模型, 三文鱼, salmon, 桌面鼠标控制]
-version: 1.3.6
+version: 1.5.0
 ---
-# 三文鱼大模型 v1.3.6（salmon-desktop-control）—— 鼠标控制 + 屏幕图像识别（Windows 桌面 UI 自动化）
+# 三文鱼大模型 v1.5.0（salmon-desktop-control）—— 鼠标控制 + 屏幕图像识别（Windows 桌面 UI 自动化）
 
-> 🚨 **【硬红线 · 2026-09-15 用户明确要求】永远不要把用户的宿主客户端主窗口 `win-move` 移出屏幕。** 用户原话："不要一执行就把我的 work 关闭死，我都打不开了"。要躲遮挡就改用 `shot-pw --hwnd <目标>`（PrintWindow，不受遮挡影响）+ `win-activate` 切换前台。详见 §0.5.4 第 1 条。
+> 🚨 **【硬红线 · 2026-09-15 用户明确要求】永远不要把用户的 WorkBuddy 主窗口 `win-move` 移出屏幕。** 用户原话："不要一执行就把我的 work 关闭死，我都打不开了"。要躲遮挡就改用 `shot-pw --hwnd <目标>`（PrintWindow，不受遮挡影响）+ `win-activate` 切换前台。详见 §0.5.4 第 1 条。
 > 🚨 **【引用本技能铁律】主代理必须先完整通读本 SKILL.md 全文并严格遵守，再动手。** 不得只扫一眼 description 就开干——漏读章节必翻车（本轮实战就因没读透 `banner.py` 实现，横幅一整轮 missing 才被用户抓出）。下文所有章节（感知-行动循环、横幅节奏、窗口铁律、速度教训十则、已知限制、收尾纪律）引用即对该对话**长期生效、跨多轮有效**，中途换话题也不失效。
 
-> **正式名：三文鱼大模型 v1.3.6**（技术名 `salmon-desktop-control`；旧名 `mouse-control` 已在第 4 轮删除，请勿再引用）
+> **正式名：三文鱼大模型 v1.5.0**（技术名 `salmon-desktop-control`；旧名 `mouse-control` 已在第 4 轮删除，请勿再引用）
 > ⚠️ **本技能在本机上有两份副本，改完必须同步并对 md5**：
-> `~/.<客户端A>/skills/salmon-desktop-control/` 与 `~/.<客户端B>/skills/salmon-desktop-control/`。
+> `~/.qoder-cn/skills/salmon-desktop-control/` 与 `~/.workbuddy/skills/salmon-desktop-control/`。
 > 老文档在这里写的是「技能只有一份」，**那是错的**——本轮实测两副本一旦分叉，
 > 回归里的「两份一致」检查立刻失败，而且请求打到哪份全看运气。
 > 内部无 LLM：OCR 用 rapidocr，控制逻辑 = `svc.py` / `mc.py` / `ocr_worker.py` / `banner.py` 四件套。
 > **v1.3.0 = 第 14 轮（2026-10-02 贪吃蛇+场景矩阵实测）：连续动作原语（按住/高频）、遮挡自愈置顶、find-color 颜色定位、guard 本地反射回路。详见文末「## 🚀 v1.3.0 连续操控与遮挡自愈」。**
 > v1.22.2 = 第 9 轮（2026-09-15）：修截图/取色 R、B 通道互换。
-> **v1.22.1 = 第 8 轮（2026-09-14 某小程序开发者工具实地考察复盘）：新增 `win-move` / `win-show` 两个 op（文档一直要求把宿主客户端挪出屏幕却从没有对应命令）；新增 §0.5.5「沙箱里怎么真正启动 GUI 程序」、§0.5.6、§0.5.7。**
+> **v1.22.1 = 第 8 轮（2026-09-14 微信开发者工具实地考察复盘）：新增 `win-move` / `win-show` 两个 op（文档一直要求把 WorkBuddy 挪出屏幕却从没有对应命令）；新增 §0.5.5「沙箱里怎么真正启动 GUI 程序」、§0.5.6、§0.5.7。**
 > v1.22 = 第 7 轮（2026-09-09 实战复盘）：新增「感知-行动循环规范」§0.5 —— 最高优先级，每次操控先读它。
 > v1.2.1 对应第 6 轮（**1h23m 马拉松实测 1531 轮闭环 + 修 2 bug + wake 升级 SendInput + svc 补齐 monitors**）。
-> v1.2.0 对应第 5 轮改进（**banner 屏幕顶部操作横幅**——告别盲 hide 宿主客户端）。
+> v1.2.0 对应第 5 轮改进（**banner 屏幕顶部操作横幅**——告别盲 hide WorkBuddy）。
 > v1.1.0 对应第 4 改进（OCR daemon 常驻化 + 看门狗自愈 + find + max_side）。
 
-## 0 本文怎么读
+## 0 场景索引（动手前先扫这张表）
 
-本仓库只发技能本体：`SKILL.md` + `scripts/` + `requirements.txt`，**没有外置文档**。
-开发过程中按场景拆出去的实战附录（安装器/UIPI、网页表单与输入法、小程序开发者工具、
-沙箱里起 GUI、长跑闭环、banner 复盘、RB 通道复盘、文件对话框）是作者本地资料，
-**不随本仓库发布**；正文里凡是提到「场景附录」的地方，都按「未发布」理解。
+**核心正文只写"每次动手都生效"的规则；每个场景的实战细节外置在下面这些文件里。**
+命中右列任何一条场景时，**必须先读那个文件再动手**——不要凭印象，那些条目每一条都是真翻过车才写下来的。
 
-那些场景的**结论**没有丢：都浓缩在 §0.5 全局铁律、§10~§12（性能基线 / 双形态 / 三种捕获形态的坑）
-和 §13 的 19 条缺陷台账里。动手前扫一眼 §13，比事后翻车再回来补记快得多。
+| 什么情况（命中任一就去读） | 读这个文件 |
+|---|---|
+| 要操作**微信小程序 / 微信开发者工具**；模拟器里点击没反应、tabBar 不切页、原生 picker 滚轮驱动不了、要改云函数超时或建集合 | `E:/C_Drive_Reloc/Libraries/Documents/三文鱼大模型附录/场景-微信开发者工具与小程序/模拟器点击与原生picker.md`<br>`E:/C_Drive_Reloc/Libraries/Documents/三文鱼大模型附录/场景-微信开发者工具与小程序/云开发控制台实操.md` |
+| 要**装软件 / 点安装向导**；窗口点了没反应；怀疑是**管理员权限(UIPI)**窗口；安装器截图整片白 | `E:/C_Drive_Reloc/Libraries/Documents/三文鱼大模型附录/场景-安装器与提权窗口/安装器与UIPI边界.md` |
+| 要在**网页表单**里填邮箱/手机号/验证码；输入法把 `@ : /` 打成中文标点；要用"运行"框开网址 | `E:/C_Drive_Reloc/Libraries/Documents/三文鱼大模型附录/场景-网页表单与输入法/网页表单与输入法干扰.md` |
+| 要操作**网盘/桌面客户端**，或面对 **Windows 打开/保存文件对话框**（手输完整路径没反应）；客户端 splash 卡死、窗口一直黑 | `E:/C_Drive_Reloc/Libraries/Documents/三文鱼大模型附录/场景-桌面客户端与文件对话框/文件对话框与splash卡死.md` |
+| 要在 **WorkBuddy 沙箱 Bash 里启动 GUI 程序**，但进程一执行完就没了 | `E:/C_Drive_Reloc/Libraries/Documents/三文鱼大模型附录/场景-沙箱里启动GUI/沙箱启动GUI.md` |
+| 要**长跑批量闭环**（几百上千轮 type/截图/OCR 校验）；`batch` 里放 wait 类 op 报连接重置 | `E:/C_Drive_Reloc/Libraries/Documents/三文鱼大模型附录/场景-长跑闭环与OCR校验/马拉松长跑闭环.md` |
+| **横幅不显示 / 忘了收尾关横幅**；要改 banner 的 alpha 或 visible 语义 | `E:/C_Drive_Reloc/Libraries/Documents/三文鱼大模型附录/场景-banner操作横幅/banner历史bug复盘.md` |
+| **取色对不上**、存出来的 PNG 红蓝反了、模板匹配分数长期偏低 | `E:/C_Drive_Reloc/Libraries/Documents/三文鱼大模型附录/场景-色彩取值与通道顺序/RB通道互换复盘.md` |
+| 要找回**已退役的 screen.py / mouse.py**（老一次性脚本）或查"老命令 → 现命令"对照 | `E:/C_Drive_Reloc/Libraries/Documents/三文鱼大模型附录/README.md` |
+
+> 表里没有的情况 = 用核心正文就够，别去翻附录。附录是给"撞过墙的人"留的地图。
 
 ## 0.5 🚨 v1.22 感知-行动循环规范（最高优先级，每次操控必须执行）
 
@@ -57,10 +66,10 @@ version: 1.3.6
 
 - `win-move` 用 `SWP_NOZORDER|SWP_NOACTIVATE`，**不抢焦点、不改 z-order**，纯挪位置；挡住的窗口挪出屏幕是比 `win-hide` 更温柔的做法（用户任务栏还能点到）。
 - **最大化的窗口直接 MoveWindow 会被系统弹回原位**（现象：返回的 x/y 跟没挪一样）—— `win-move` 内部已先 `IsZoomed` 判断并 `SW_RESTORE`，不用自己处理。
-- **挪出去必须挪回来**。宿主客户端本体尤其会在几秒内自行恢复原位置，所以"一次挪走、后面十几步都指望它不在"是行不通的，**每次循环都要重挪**。
+- **挪出去必须挪回来**。WorkBuddy 本体尤其会在几秒内自行恢复原位置，所以"一次挪走、后面十几步都指望它不在"是行不通的，**每次循环都要重挪**。
 - 🚨 **哪些窗口能动、哪些绝对不能动（2026-09-15 用户红线）**：
-  - ✅ 可以挪/藏：**目标程序自己的辅助窗口**（如某小程序开发者工具的"云开发控制台"子窗口、目标软件自身弹出的面板）。
-  - ❌ **绝对不能动**：**用户的工作窗口**（宿主客户端主窗口）、用户自己的浏览器/编辑器/文档等个人窗口。挪走或藏掉它们会让用户"找不到、打不开自己的软件"，属于翻车级操作。**宿主客户端主窗口永远只用 `win-activate` 之外的手段绕开遮挡 —— 即改用 `shot-pw` 抓目标窗口。**
+  - ✅ 可以挪/藏：**目标程序自己的辅助窗口**（如微信开发者工具的"云开发控制台"子窗口、目标软件自身弹出的面板）。
+  - ❌ **绝对不能动**：**用户的工作窗口**（WorkBuddy 主窗口）、用户自己的浏览器/编辑器/文档等个人窗口。挪走或藏掉它们会让用户"找不到、打不开自己的软件"，属于翻车级操作。**WorkBuddy 主窗口永远只用 `win-activate` 之外的手段绕开遮挡 —— 即改用 `shot-pw` 抓目标窗口。**
 
 ### 0.5.7 截图路径别踩反斜杠
 
@@ -73,15 +82,15 @@ version: 1.3.6
 - 即：**banner 跟着"动手"走，不跟着"动脑"走**。任务结束必须 banner-hide。
 
 ### 0.5.3 思考强度分级（提速关键）
-- **感知-行动循环内（截屏→OCR→定位→点击）**：轻量快速决策，**单脚本闭环**——把"激活窗口→缩放→截屏→OCR→条件点击→验证"写进**一个 python 进程**一次跑完。禁止拆成多轮对话式工具调用：每跨一次进程 = 焦点丢一次 + 宿主客户端抢一次前台 + 慢 5~20 秒。
+- **感知-行动循环内（截屏→OCR→定位→点击）**：轻量快速决策，**单脚本闭环**——把"激活窗口→缩放→截屏→OCR→条件点击→验证"写进**一个 python 进程**一次跑完。禁止拆成多轮对话式工具调用：每跨一次进程 = 焦点丢一次 + WorkBuddy 抢一次前台 + 慢 5~20 秒。
 - **正常规划/排障思考**：最大强度不变。快慢分明：**手上快，脑里深**。
 
 ### 0.5.4 速度教训十则（2026-09-09 实战失败原因，每条都真翻过车）
-1. **宿主客户端抢前台** → OCR 读到的"按钮"全是聊天记录文字，白找半天。
-   🚨 **【2026-09-15 用户明确禁止】绝对不要把用户的宿主客户端主窗口 `win-move` 移出屏幕** —— 用户原话"不要一执行就把我的 work 关闭死，我都打不开了"，挪走后用户找不到、打不开自己的软件，体验极差。
+1. **WorkBuddy 抢前台** → OCR 读到的"按钮"全是聊天记录文字，白找半天。
+   🚨 **【2026-09-15 用户明确禁止】绝对不要把用户的 WorkBuddy 主窗口 `win-move` 移出屏幕** —— 用户原话"不要一执行就把我的 work 关闭死，我都打不开了"，挪走后用户找不到、打不开自己的软件，体验极差。
    **正解（不碰用户窗口）**：
-   - **截图改用 `shot-pw --hwnd <目标窗口>`（PrintWindow）**：它直接抓窗口自己的位图，**完全不受遮挡影响**，宿主客户端在前台也照样能抓到目标内容。返回的 `width/height` 就是窗口物理尺寸、`left/top` 是窗口原点，换算 `屏幕坐标 = 图片坐标 + left/top` 即可（实测 DevTools 窗口 (1,1) 3094x1942，图片 1:1，直接 +1 就行）。
-   - **只有"点击/OCR"才需要目标在前台**：用 `win-activate --hwnd <目标>`（这是正常的窗口切换，用户窗口仍在任务栏、随时可用），并在每次点击前重新 activate 一次；点完立刻用 `shot-pw` 验收，不受宿主客户端弹回影响。
+   - **截图改用 `shot-pw --hwnd <目标窗口>`（PrintWindow）**：它直接抓窗口自己的位图，**完全不受遮挡影响**，WorkBuddy 在前台也照样能抓到目标内容。返回的 `width/height` 就是窗口物理尺寸、`left/top` 是窗口原点，换算 `屏幕坐标 = 图片坐标 + left/top` 即可（实测 DevTools 窗口 (1,1) 3094x1942，图片 1:1，直接 +1 就行）。
+   - **只有"点击/OCR"才需要目标在前台**：用 `win-activate --hwnd <目标>`（这是正常的窗口切换，用户窗口仍在任务栏、随时可用），并在每次点击前重新 activate 一次；点完立刻用 `shot-pw` 验收，不受 WorkBuddy 弹回影响。
    - 需要 OCR 定位元素时：先 `win-activate` 再 `locate-text`，或把 `shot-pw` 存下的 PNG 用本地 rapidocr 自己识别（`ocr_worker.py` / rapidocr 已在 venv 里）。
    - **收尾仍然保持**：`banner-hide` 必做。
 2. **跨进程间隙焦点丢失** → 每条命令一个进程，间隔期窗口失焦/被抢。**对策：单进程闭环**（见 0.5.3）。
@@ -91,14 +100,14 @@ version: 1.3.6
 5. **点击无效果** → 落点被浮窗挡住（如 UE"内容浏览器"压在目标窗口上）。**对策：点击前用 WindowFromPoint 验证落点窗口归属**，不符先 win-activate 提到最上层。
 6. **Enter 键丢失 / IME 把 ASCII 吞成中文**（邮箱被打成"@侵权。co'm"）→ **对策：关键文本一律剪贴板粘贴（mc.py type 就是粘贴）**；导航 ctrl+l + 粘贴后要 OCR 验证 URL 再继续。
 7. **shot-pw 图像坐标 ≠ 屏幕物理坐标** → 按窗口抓图算的坐标点到别处。**对策：定位/点击一律用 mss 全屏物理截图（1:1）**；PrintWindow 只用来看内容，不用来算坐标。
-8. **Edge 136+ 默认 profile 忽略 --remote-debugging-port** → CDP 起不来。**对策：独立目录 `--user-data-dir=D:\edge_cdp --remote-debugging-port=9222`** + playwright-core connectOverCDP 接管；登录态在该 profile 登一次永久有效。
-9. **发对话消息 = 宿主客户端必抢前台** → 一条消息毁一次循环。**对策：静默推进，只在需决策/交付时发消息**（顺便省积分）。
+8. **Edge 136+ 默认 profile 忽略 --remote-debugging-port** → CDP 起不来。**对策：独立目录 `--user-data-dir=E:\edge_cdp --remote-debugging-port=9222`**（2026-10-05 重装后该 profile 实际在 `E:\edge_cdp`，旧文档写的 `D:\` 已不存在）+ playwright-core connectOverCDP 接管；登录态在该 profile 登一次永久有效。
+9. **发对话消息 = WorkBuddy 必抢前台** → 一条消息毁一次循环。**对策：静默推进，只在需决策/交付时发消息**（顺便省积分）。
 10. **页面重载后滚动位置被恢复** → 误判"没跳转"。**对策：导航后重新 OCR 校对视口内容**，不沿用旧坐标；必要时 Home/PageUp 归位。
 
 把"看屏幕 → 想坐标 → 点鼠标"做成一条链：都由**常驻服务 `svc.py` + 客户端 `mc.py`** 承担
 （`shot`/`find`/`ocr`/`locate-text` 是眼睛，`click`/`drag`/`scroll`/`type`/`key` 是手），每条命令返回**单行 JSON**，方便继续编程处理。
 **唯一入口是 `mc.py`**（`screen.py` / `mouse.py` 两条老骨架已于 v1.3.5 退役，见「已退役」节）。
-**v1.2.0 新增** `banner.py` —— 屏幕顶部操作横幅：第 5 轮改进，替代"盲 hide 宿主客户端"，让用户实时看到 AI 当前环节。
+**v1.2.0 新增** `banner.py` —— 屏幕顶部操作横幅：第 5 轮改进，替代"盲 hide WorkBuddy"，让用户实时看到 AI 当前环节。
 
 ## 📌 使用元规约（引用本技能即整段对话长期生效）
 
@@ -113,16 +122,16 @@ version: 1.3.6
 ## 运行环境（可移植，换机即用）
 
 - 技能根目录：把 `salmon-desktop-control/` 放进你的技能目录即可——
-  宿主客户端用户级：`<你的客户端配置目录>/<客户端B>/skills/salmon-desktop-control/`，
-  或项目级：`<项目>/<客户端B>/skills/salmon-desktop-control/`。
+  WorkBuddy 用户级：`<你的 workbuddy 配置>/.workbuddy/skills/salmon-desktop-control/`，
+  或项目级：`<项目>/.workbuddy/skills/salmon-desktop-control/`。
 - 解释器：任意 Python 3.10+，**不写死路径**。本文档统一用 `PY` 占位，自行替换：
   - 普通情况：`PY="python"`（PATH 中需有 python）
-  - 宿主客户端托管 venv：`PY="<宿主客户端>/binaries/python/envs/default/Scripts/python.exe"`
+  - WorkBuddy 托管 venv：`PY="<workbuddy>/binaries/python/envs/default/Scripts/python.exe"`
 - 技能脚本目录统一记为 `SCR="<技能根目录>/scripts"`
 - 依赖：`pyautogui mss opencv-python-headless numpy Pillow rapidocr-onnxruntime`
 - 新机首次：`python -m pip install pyautogui mss opencv-python-headless numpy Pillow rapidocr-onnxruntime`
 
-> ⚠️ 全文 `PY` / `SCR` / 截图路径都是占位符，按你机器替换；不要照抄示例里的 `你的用户名`、`<某个工作目录>` 等绝对路径。
+> ⚠️ 全文 `PY` / `SCR` / 截图路径都是占位符，按你机器替换；不要照抄示例里的 `Administrator`、`D:/workbuddy/...` 等绝对路径。
 
 ## 🚀 常驻加速版：svc.py + mc.py（推荐，替代直接调 screen.py/mouse.py）
 
@@ -136,7 +145,7 @@ import cv2/numpy ~1.5-2.5s、RapidOCR 模型加载 1-3s。一个"截图→OCR→
 - daemon 卡死超时（默认 90s）→ 自动 kill 重建；svc 整体假死（op 超 300s）→ watchdog 自杀等客户端自愈重启。
 
 ```bash
-PY="python"   # 或你的宿主客户端托管 venv python 绝对路径
+PY="python"   # 或你的 WorkBuddy 托管 venv python 绝对路径
 MC="$SCR/mc.py"   # SCR = <技能根目录>/scripts
 
 "$PY" "$MC" ping                                # 服务是否活着（正常 <10ms；返回 ocr_daemon/inflight/last_op_age_s 健康字段）
@@ -157,11 +166,11 @@ MC="$SCR/mc.py"   # SCR = <技能根目录>/scripts
 "$PY" "$MC" win-activate --hwnd 7146434                  # 安全前置（禁用 TOPMOST！）
 "$PY" "$MC" win-hide --hwnd 25755890                     # 藏起遮挡窗口（如云开发控制台）
 "$PY" "$MC" win-show --hwnd 25755890                     # v1.22.1：把 win-hide 藏起来的窗口放回来（SW_SHOW+SW_RESTORE）
-"$PY" "$MC" win-move --hwnd 133122 --x -4000 --y 0       # v1.22.1：把抢前台的窗口（如宿主客户端）挪出屏幕；最大化窗口会先自动 SW_RESTORE
+"$PY" "$MC" win-move --hwnd 133122 --x -4000 --y 0       # v1.22.1：把抢前台的窗口（如 WorkBuddy）挪出屏幕；最大化窗口会先自动 SW_RESTORE
 "$PY" "$MC" win-move --hwnd 133122 --x 0 --y 0           # v1.22.1：挪回原位（收尾必做）
 "$PY" "$MC" wake                                         # 显示器睡眠先唤醒（v1.2.1：SendInput 硬件级，DPMS 睡眠唯一有效手段）
 "$PY" "$MC" monitors                                     # v1.2.1：列出全部显示器几何 + DPI scale（多屏/缩放排查先跑它）
-"$PY" "$MC" banner --subtitle "正在打开某聊天工具 / 第 1 步"   # 第5轮：顶部横幅更新（title 缺省保留）
+"$PY" "$MC" banner --subtitle "正在打开微信 / 第 1 步"   # 第5轮：顶部横幅更新（title 缺省保留）
 "$PY" "$MC" banner --title "三文鱼大模型正在操控屏幕，请勿触碰" --subtitle "..."
 "$PY" "$MC" banner-hide                                  # 第5轮：自动化结束收尾，关闭横幅
 "$PY" "$MC" batch --json '[{"op":"win-activate","hwnd":1},{"op":"shot","out":"D:/a.png"}]'
@@ -172,7 +181,7 @@ svc 手动管理：`python svc.py serve`（前台，调试用）/ `python svc.py
 
 **注意**：
 - 首次调用含自动拉起 svc，约 2-3s；之后单命令 <100ms（OCR 除外）。
-- 在宿主客户端沙箱 Bash 里，svc 会在每次调用结束时被回收 → 每条 mc.py 都重新拉起（首次 ~2-3s）。
+- 在 WorkBuddy 沙箱 Bash 里，svc 会在每次调用结束时被回收 → 每条 mc.py 都重新拉起（首次 ~2-3s）。
   需要真正跨命令常驻时，请在一个**不结束的会话**里跑 `svc.py serve`，或在普通终端跑 `svc.py start`。
 - 窗口操作铁律：**前置窗口只用 win-activate（SW_RESTORE+SetForegroundWindow+BringWindowToTop+自动重试）；禁止 SetWindowPos TOPMOST**，否则窗口被压 z-order 底层、mss 永久抓黑。activate 后看 `is_foreground`，false 会自动重试（Windows 前台锁定，坑 H）。
 - `is_foreground:true` 不等于视觉可见：目标可能被别的窗口盖住。判别 = 全屏 shot 亮度 >230 且 OCR 0 条 → 先 `win-hide` 盖住它的窗口（坑 I）。
@@ -198,7 +207,7 @@ MC="$SCR/mc.py"
 ```
 
 > ⚠️ 本技能在机器上有**两份副本**，改完必须同步并对 md5：
-> `~\<客户端A>\skills\salmon-desktop-control\` 与 `~\<客户端B>\skills\salmon-desktop-control\`。
+> `~\.qoder-cn\skills\salmon-desktop-control\` 与 `~\.workbuddy\skills\salmon-desktop-control\`。
 > （历史上正因为多处副本导致过行为漂移。）
 
 ## 已退役：screen.py / mouse.py（不在技能里了）
@@ -207,7 +216,7 @@ MC="$SCR/mc.py"
 `mc.py` 全量覆盖且慢一个数量级，**v1.3.5 起从技能目录撤除**。源码、完整命令表、
 以及"老命令 → 现命令"对照表都搬到了电脑上的附录目录，需要时去那里读：
 
-> **`本仓库未附的场景附录`**（本仓库未附场景附录，以下要点已在正文里）
+> **`E:\C_Drive_Reloc\Libraries\Documents\三文鱼大模型附录`**（打开 `README.md`）
 >
 > **正常使用不需要读它。只有在改 bug、要拿老实现交叉对答案的时候才去读。**
 
@@ -235,7 +244,7 @@ MC="$SCR/mc.py"
 
 以下是技能本身无法绕过的天花板，引用前心里要有数——别在它们身上反复撞：
 
-- **沙箱回收 svc（本质限制）**：宿主客户端 Bash 里每条命令结束 svc 都会被回收，下次调用重新拉起（首次 ~2-3s）；真正跨命令常驻要在持续会话跑 `svc.py serve` 或普通终端 `svc.py start`。第 4 轮已加自愈，但回收本质未解（banner 因独立端口才幸免，环境全杀时同样挂）。
+- **沙箱回收 svc（本质限制）**：WorkBuddy Bash 里每条命令结束 svc 都会被回收，下次调用重新拉起（首次 ~2-3s）；真正跨命令常驻要在持续会话跑 `svc.py serve` 或普通终端 `svc.py start`。第 4 轮已加自愈，但回收本质未解（banner 因独立端口才幸免，环境全杀时同样挂）。
 - **并发能力 = 1**：mss/pyautogui 非线程安全，全 op 串行，多请求只能排队。做"按 region 切块并发 OCR"需先打破这个假设。
 - **OCR 漏字（长文本/关键 ID 风险）**：rapidocr 轻量，中文长文本会漏字（fileID 曾漏读中段 → 静默失败）。**关键长 ID 禁止走 OCR**，改用大字渲染 + 接口自检。
 - **全屏 OCR 偏慢**：~2s；视频播放等动态画面逐帧识别不稳定。大图优先 `ctrl+-` 缩到最小再识别，或给 `--region` 分块（region 高度别小于 ~200px，见坑 J）。
@@ -310,7 +319,7 @@ MC="$SCR/mc.py"
 
 ### 10.6 用这套打游戏的硬边界（如实记录）
 
-1. **联机反作弊是红线**（EAC/BattlEye/ACE/某厂商 MC 服务端会检测合成输入，轻则踢线重则封号）。
+1. **联机反作弊是红线**（EAC/BattlEye/ACE/网易 MC 服务端会检测合成输入，轻则踢线重则封号）。
 2. ~~`guard` 的出手仍走 SendInput，需要目标窗口在前台；将来用 PostMessage 直投（v1.4 计划）~~
    **这条已在 v1.3.1 兑现**：`--via post --hwnd` 走 PostMessage 后台投递，
    实测目标全程不在前台也能把一整局打完（§11.1 的 ③pw+post 那轮）。
@@ -400,7 +409,7 @@ MC="$SCR/mc.py"
 
 ## 12. v1.3.5 第三捕获形态 WGC 与两条被名字骗了的旧逻辑
 
-第 16 轮（2026-10-02）。这轮不是"加功能"，是拿某 agent 客户端原生 computer-use 的抓帧后端（`nativeProvider=rust-wgc`）
+第 16 轮（2026-10-02）。这轮不是"加功能"，是拿 Qoder 原生 computer-use 的抓帧后端（`nativeProvider=rust-wgc`）
 去照三文鱼，结果顺手挖出两条**名字和实现对不上**的老逻辑。数据全部来自同一个自绘 canvas 靶子
 （tkinter 760×560 接球游戏，DPI 无关，200% 缩放，屏幕物理 1044×864）。
 
@@ -651,3 +660,65 @@ powershell 自己**（它的命令行里就带着 `wgc_worker` 这串字）。�
 
 另外 `wait-stable` / `guard` 现在都把**实际用的捕获形态**报成 `form` 字段。
 不定罪就没法排查：auto 会在 pw/wgc 之间来回切，只报耗时不报形态，等于指标没法复现。
+
+---
+
+## 15. v1.5.0 游戏级操控（《我的世界》开发测试实测驱动）
+
+第 17 轮（2026-10-06）。目标：让三文鱼"能像人一样玩《我的世界》"。全部结论来自实机。
+
+### 15.1 两个新原语
+
+```bash
+"$PY" "$MC" move-rel --dx 700 --dy -120 --steps 14   # 相对位移（转视角用）
+"$PY" "$MC" mouse-hold --button left --hold 2.0      # 按住鼠标 N 秒（挖矿/蓄力）
+```
+
+`move-rel` 用 ctypes 直接发 `SendInput(MOUSEEVENTF_MOVE)`，**不带 ABSOLUTE 标志**——
+`pyautogui.moveTo` 发的是 `ABSOLUTE|VIRTUALDESK`，游戏（DirectInput/Raw Input）只读相对位移，
+所以绝对定位对视角完全无效。`sizeof(INPUT)` 必须是 40（x64），写错会静默不生效。
+
+### 15.2 实测边界：键盘进得去，鼠标进不去
+
+| 输入 | 通道 | 结果 |
+|---|---|---|
+| `key t` / `f3` / `j` / `esc` | SendInput 键盘 | **生效**（开聊天、切调试、翻页、关页面） |
+| `key-hold w 8s` | SendInput 键盘 | **生效**，遥测坐标 `884,71,8 → 884,59,16`，还带真实重力下落 |
+| 方向键 / PageUp / PageDown / Home / End | SendInput 键盘 | **生效**（前提：模组把这些键绑到转向上，见 15.3） |
+| `move-rel` 相对位移 | SendInput 鼠标 | **视角不动**：整帧只差 0.5%，光标自己跑到屏幕角（游戏没抓指针） |
+| 老 API `mouse_event` 相对位移 | — | 同上，也不吃 |
+
+**结论：这个构建的相机只认物理鼠标，注入的相对鼠标一律无效。**
+不要在这上面继续耗——转视角改走"模组绑空闲键"，实测右转 6 次整帧变化 24.3%。
+
+### 15.3 让游戏可玩的标准做法（键位表）
+
+在被测游戏里绑一组**游戏本身没用**的键做相机，比破解输入注入便宜得多：
+
+```
+← →            偏航 ±15°        PageUp / PageDown  偏航 ±45°
+↑ ↓            俯仰 ∓10°        Home / End         抬头到顶 / 低头到脚
+```
+
+实现要点（网易基岩版 ModSDK）：`OnKeyPressInGame` 的 `args["key"]` 是**虚拟键码字符串**
+（J 是 `"74"`，方向键是 37/38/39/40），先 `GetRot()` 再叠加增量 `SetRot((pitch, yaw))`，
+俯仰夹在 ±89°，别直接写死角度。
+
+### 15.4 修掉一个长期存在的 OCR 故障（中文账户必现）
+
+`cv2.imwrite` 在**非 ASCII 路径**上直接返回 `False`，而中文账户的 `%TEMP%` 正是非 ASCII
+（用户名是中文），于是 OCR 报 `img_write_fail`——看起来像"OCR 引擎坏了"。
+现在 `_ascii_tmp_dir()` 会挑一个保证全 ASCII 且可写的目录（优先 `%ProgramData%\salmon_tmp`）
+给 OCR 临时图，失败时 `hint` 里会把实际用的目录带出来。
+**教训：任何要落盘的中间文件都不能信任默认 temp 目录。**
+
+### 15.5 测量纪律：像素字体不要交给 OCR
+
+游戏 HUD 的点阵字（F3 的 `XYZ:` 等）rapidocr 会读成 `12:` 这种废串。
+需要精确数值时，让被测程序自己写文件（本项目里模组每 10 秒写一行 `pos x y z day=`），
+截图只用来做"变了没"的粗判（整帧差异百分比）。
+
+### 15.6 操控前的硬性检查：界面有没有挡住键位
+
+本项目里角色"按 W 不动"的真实原因是**说明书界面开着**（进世界会自动弹书）。
+所以每次进游戏第一件事：截图确认没有 GUI 挡着，再谈"键位失效"。
