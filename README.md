@@ -1,218 +1,205 @@
 # 三文鱼大模型 · salmon-desktop-control
 
-**给 AI agent 用的 Windows 桌面操控技能：它看得见的不是"一张屏幕截图"，而是任何一个窗口自己的画面。**
+**给 AI agent 用的 Windows 桌面操控技能。它看见的不是「一张屏幕截图」，而是任何一个窗口自己的画面。**
 
-主流桌面自动化只有两条路——抓整块屏幕、读 UIA 语义树。这两条在真实桌面上会同时失效：
-目标被别的窗口盖住时，你抓到的是**别人的画面**；目标是自绘 UI / 游戏 / GPU 渲染时，语义树里**什么都没有**。
-这个技能为这两种失败而生：三种捕获形态（屏幕合成 / PrintWindow / Windows 图形捕获 WGC）、
+> 本文件是**给 AI 读的安装说明书**。人只要把整个文件夹丢进技能目录即可；
+> 如果你是被用户要求「照着这份说明装好并跑通」，请严格按下面 §2 的步骤执行，并在最后执行 §4 的自检，把真实输出贴给用户看。
+
+---
+
+## 0. 这是什么 / 适合谁
+
+主流桌面自动化只有两条路：抓整块屏幕、读 UIA 语义树。这两条在真实桌面上会同时失效——
+
+- 目标被别的窗口盖住时，你抓到的是**别人的画面**；
+- 目标是自绘 UI / 游戏 / GPU 渲染时，语义树里**什么都没有**。
+
+本技能专为这两种失败而做：三种捕获形态（屏幕合成 / PrintWindow / Windows 图形捕获 WGC）、
 像素级找图找色找字、把输入直接投给目标句柄（**不抢前台、不动鼠标**），
 外加一条本地反射回路——模型只下发策略，逐帧判断与出手跑在本地进程里。
 
-一句话立场：**语义树管"正常的软件"，三文鱼管"不正常的那一半"。**
+**一句话立场：语义树管「正常的软件」，三文鱼管「不正常的那一半」。**
 
-> **A Windows desktop-control skill built for AI agents: it doesn't see "a screenshot of the screen" — it sees the content of any single window.**
-> Mainstream desktop automation has only two paths: grab the whole screen, or read the UIA element tree. Both break on a real desktop. When another window covers your target, you capture *someone else's pixels*; when the target is a custom-drawn UI, a game, or GPU-rendered content, the element tree is *empty*. This skill exists for exactly those two failures: three capture backends (screen composition / PrintWindow / Windows Graphics Capture), pixel-level template, color and OCR matching, input delivered straight to the target window handle (**no foreground stealing, no cursor movement**), plus a local reflex loop — the model ships a policy, while per-frame perception and actuation run in a local process.
-> In one line: **the element tree handles well-behaved apps; Salmon handles the other half.**
+> ⚠️ 只支持 **Windows** 真实桌面会话。需要图形界面；无头/纯服务端环境跑不了。
 
-## 30 秒上手 · Quick start
+---
 
-```bash
-git clone https://github.com/485148606/salmon-desktop-control.git
-cd salmon-desktop-control
-pip install -r requirements.txt
+## 1. 环境要求（先自查）
 
-python scripts/svc.py start     # 起常驻服务（首次加载 OCR 约 10s，之后常驻）
-python scripts/mc.py ping       # {"ok":true,"pong":true,...}  中位 0.9ms
-python scripts/mc.py shot-wgc --hwnd <窗口句柄> --out shot.png   # 被遮挡也拿到窗口满分辨率原图
+| 项目 | 要求 | 说明 |
+|---|---|---|
+| 操作系统 | **Windows 10 / 11**（64 位） | 依赖 Win32 API 与 Windows Graphics Capture |
+| Python | **3.10 ~ 3.13**（64 位） | 32 位 Python 不行，`windows-capture` 需要 64 位 |
+| 网络 | 首次装依赖需要 | 之后完全离线可用，**不联网、不上传任何数据** |
+| 权限 | 普通用户即可 | 但**目标程序以管理员运行时，你的进程也必须提权**，否则系统层面禁止操作它（UIPI） |
+| 磁盘 | 约 300 MB | 其中依赖约占 250 MB（opencv + onnxruntime + 模型） |
+
+---
+
+## 2. 安装（照抄即可）
+
+### 2.1 把技能目录放到客户端的技能位置
+
+解压后应得到这样的结构（**`salmon-desktop-control/` 这一层必须完整保留**）：
+
+```
+salmon-desktop-control/
+├── SKILL.md              ← 全部说明书（AI 读这个）
+├── requirements.txt
+├── README.md             ← 本文件
+├── docs/                 ← 实战附录，按场景拆分，命中才读
+│   ├── README.md
+│   ├── 场景-banner操作横幅/
+│   ├── 场景-安装器与提权窗口/
+│   ├── 场景-微信开发者工具与小程序/
+│   ├── 场景-桌面客户端与文件对话框/
+│   ├── 场景-沙箱里启动GUI/
+│   ├── 场景-网页表单与输入法/
+│   ├── 场景-色彩取值与通道顺序/
+│   └── 场景-长跑闭环与OCR校验/
+└── scripts/
+    ├── svc.py            ← 常驻服务（127.0.0.1:8765）
+    ├── mc.py             ← 唯一命令行入口，40+ 个 op
+    ├── uia_sem.py        ← v1.6.0 语义读取通道（UIA）
+    ├── ocr_worker.py     ← OCR 独立进程
+    ├── wgc_worker.py     ← WGC 抓帧独立进程
+    ├── banner.py         ← 屏幕顶部操作横幅
+    └── common.py
 ```
 
-接到你的 agent 客户端：把整个 `salmon-desktop-control/` 目录放进客户端的技能目录
-（例如 `~/.<你的客户端>/skills/`）。`SKILL.md` 就是全部说明书，**没有外置文档**。
+把**整个 `salmon-desktop-control/` 文件夹**放进你的 agent 客户端的技能目录。常见位置：
 
-> Start the resident service (first run loads OCR, ~10s), then every command is millisecond-level.
-> To install it into your agent client, drop the whole `salmon-desktop-control/` folder into that client's
-> skills directory (e.g. `~/.<your-client>/skills/`). `SKILL.md` is the complete manual — **there is no external documentation**.
+- DeepSeek Harness：`~/.dsh/skills/salmon-desktop-control/`
+- WorkBuddy：`~/.workbuddy/skills/salmon-desktop-control/`
+- Qoder：`~/.qoder-cn/skills/salmon-desktop-control/`
+- Codex / 其他支持 skills 的客户端：`~/.<客户端>/skills/salmon-desktop-control/`
 
-## 极限场景下，它领先的部分 · Where it leads in the hard cases
+> **不要只拷贝 `scripts/` 或只拷贝 `SKILL.md`。** 缺 `docs/` 会导致 SKILL.md 里 8 处场景索引指向空文件；缺 `scripts/` 则任何命令都跑不了。
 
-每条都有本机实测数字，测量条件写在最后一节，欢迎复现。
+### 2.2 装 Python 依赖
 
-> Every claim below is backed by a local measurement; the test conditions are at the end. Reproduce freely.
+```bash
+cd salmon-desktop-control
+pip install -r requirements.txt
+```
 
-**1. 目标被完全遮挡 —— 它还看得见目标自己。**
-把一块灰布压在靶子窗口上，再看各家抓回来的图里是"靶子的深色底"还是"布的灰底"：
+依赖清单（7 个）：
 
-| 通路 | 图里是靶子 | 图里是那块布 | 结论 |
-|---|---|---|---|
-| 三文鱼 `--form pw` | **96.1%** | 0% | ✅ 看穿 |
-| 三文鱼 `--form wgc` | **91.0%** | 0% | ✅ 看穿，且满分辨率、坐标 1:1 |
-| 某 agent 客户端自带 computer-use | 90.3% | 0% | ✅ 看穿（底层同样是 WGC） |
-| GitHub 最火桌面控制（某热门桌面 MCP） | 0.9% | **91.7%** | ❌ 抓到的是那块布 |
-| Windows 原生屏抓（.NET CopyFromScreen） | 0.1% | **97.9%** | ❌ 同上 |
+```
+pyautogui>=0.9.54
+mss>=9.0.1
+opencv-python-headless>=4.8
+numpy>=1.24
+Pillow>=10.0
+rapidocr-onnxruntime>=1.3
+windows-capture>=2.0.1
+```
 
-> **1. Fully occluded target — it still sees the target itself.** We covered the target window with a gray
-> overlay and measured whether each capture contains the target's dark background or the overlay's gray.
-> Salmon's PrintWindow (96.1%) and WGC (91.0%) see straight through; so does the client's built-in
-> computer-use (90.3%, WGC under the hood). The most popular desktop-control MCP on GitHub captured the
-> overlay instead (91.7% gray), and so did a plain screen grab (97.9% gray).
+**两个常见坑：**
 
-**2. 逐帧实时操控 —— 比"每帧问一次模型"快三个数量级。**
-本地反射回路 `guard` 实测 **30.7ms/帧 = 33 次决策/秒**；模型在环跑同一款接球游戏，
-一轮生成就要吃掉 **21–58 格游戏时间**。所以分工是硬约束：模型下发条件与动作脚本，
-本地进程逐帧判断、逐帧出手。UIA 路线在这条赛道上没有入场券——**读一次元素树要 5.4 秒**。
+1. **`windows-capture` 装不上** → 检查是不是 32 位 Python（`python -c "import struct;print(struct.calcsize('P')*8)"` 必须输出 `64`）。
+2. **国内网络慢** → 换镜像：`pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple`
+3. 如果只想用前两种捕获形态（不需要 WGC），可以不装 `windows-capture`；
+   `--form wgc` 会自动回退到 `pw`，**不会报错**，只是拿不到满分辨率/被遮挡的图。
 
-> **2. Frame-by-frame real-time control — three orders of magnitude faster than asking the model each frame.**
-> The local reflex loop (`guard`) measured **30.7 ms/frame ≈ 33 decisions/s**, while a single model turn
-> consumed **21–58 in-game ticks** on the same catch game. Hence the hard split: the model ships conditions
-> and action scripts, a local process decides and actuates every frame. UIA-based tooling can't even enter
-> this race — **one element-tree read costs 5.4 s**.
+### 2.3 启动常驻服务
 
-**3. 出手不抢前台 —— 多人 / 多 agent 共用一台桌面的必需品。**
-`--via post` 用 `PostMessage` / `WM_CHAR` 直投目标句柄，实测目标**全程不在前台**也能把一整局游戏打完。
-各家现成的点击与按键都走全局 SendInput，前台一丢就打进别人的窗口；
-更糟的是某热门桌面 MCP 的出屏元素 UIA 坐标会**退化成 (0,0)**，一点就点屏幕左上角。
-本技能还有服务级硬开关 `front-policy --allow 0`：关掉后任何自动置顶一律跳过并计数，不靠调用方的自觉。
+```bash
+python scripts/svc.py start
+```
 
-> **3. Actuation without stealing focus — mandatory when several agents share one desktop.**
-> `--via post` delivers `PostMessage`/`WM_CHAR` straight to the target handle; a full game was completed
-> with the target **never once in the foreground**. Off-the-shelf clicks and keystrokes use global SendInput,
-> so the moment focus is lost they type into someone else's window; worse, one popular desktop MCP reports
-> **off-screen UIA elements at (0,0)** and clicks the top-left corner of the screen. Salmon also has a
-> service-level kill switch, `front-policy --allow 0`: all automatic raising is skipped and counted —
-> it does not rely on the caller's self-discipline.
+首次启动会加载 OCR 模型，**约 10 秒**；之后常驻内存，每次命令都是毫秒级。
+服务只监听 `127.0.0.1:8765`，不对外网开放。
 
-**4. 单次操作延迟 —— 常驻服务把"每条命令重启一次 Python"这件事消灭了。**
+---
 
-| 动作 | 中位 | 备注 |
+## 3. 三十秒上手
+
+```bash
+python scripts/mc.py ping                                   # 健康检查 → {"ok":true,"pong":true,...}
+python scripts/mc.py shot --out shot.png                    # 整屏截图
+python scripts/mc.py shot-wgc --hwnd <窗口句柄> --out w.png  # 被遮挡也拿到该窗口满分辨率原图
+python scripts/mc.py locate-text --text 确定                 # 按文字定位，返回坐标
+python scripts/mc.py click --x 500 --y 400                  # 点击
+python scripts/mc.py uia-list --hwnd <句柄>                  # 读控件清单（不截图）
+python scripts/mc.py uia-click --hwnd <句柄> --name 保存     # 按名字点按钮（不动鼠标）
+python scripts/mc.py find-icon --region 950,60,147,80       # 无模板找图标候选（v1.6.1）
+python scripts/mc.py icon-click --region 950,60,147,80 --verify   # 找+点+自动验证（v1.6.1）
+python scripts/mc.py banner --title "AI 正在操控屏幕"        # 顶部操作横幅
+```
+
+完整 40+ 个 op 见 `SKILL.md`（**它是唯一完整手册，没有别的文档**）。
+
+---
+
+## 4. 装完请跑这个自检（把输出贴给用户）
+
+```bash
+python scripts/svc.py start
+python scripts/mc.py ping
+python scripts/mc.py shot --out verify.png
+```
+
+**三项全过 = 装好了**：
+
+| 命令 | 期望输出 | 失败怎么办 |
 |---|---|---|
-| `ping` | 0.9ms | 服务活着就行 |
-| `click` | 2ms | 服务内 |
-| 截一个窗口（屏抓 / pw / wgc） | 15.3 / 17.9 / **9.9ms** | 含一次 HTTP 往返 |
-| 颜色 / 模板找图 | <20ms | 纯色小块请用颜色掩码，模板匹配会假命中 |
-| 区域 OCR | 167ms | 一定要限定到目标矩形；全屏 OCR 是 0.9–2.1s |
-| GitHub 最火桌面控制：整屏截图 / UIA 树 | **416ms / 5.4s** | |
-| 某客户端自带 computer-use：按窗口取状态 | **291ms** | 树+图一次给，这点它做得漂亮 |
-| 一次模型往返 | 秒级 | 逐帧问模型会直接毁掉实时性 |
+| `svc.py start` | 无报错，进程常驻 | 看报错缺哪个包 → 回到 §2.2 |
+| `mc.py ping` | `{"ok": true, "pong": true, ...}` | 服务没起来：`svc.py start` 的前 20 行日志 |
+| `mc.py shot --out verify.png` | 生成一个 **大于 100 KB** 的 PNG | 空/黑图 → 确认不是远程桌面最小化、不是锁屏 |
 
-> **4. Per-call latency — the resident service deletes the "restart Python for every command" tax.**
-> `ping` 0.9ms · `click` 2ms · capturing one window 15.3 / 17.9 / **9.9 ms** (screen / PrintWindow / WGC,
-> one HTTP round trip included) · color & template matching <20ms · region OCR 167ms (full-screen OCR: 0.9–2.1s).
-> For comparison: the GitHub-popular MCP needs **416ms** for a full-screen shot and **5.4s** for a UIA tree;
-> the client's built-in computer-use takes **291ms** per window state (tree + image in one call — genuinely nice).
+收尾：
 
-**5. 原生通路不会替你做的那些决定，它做掉了。**
-DPI 无关窗口上 `PrintWindow` 只印出左上 1/4（半分辨率、坐标还要乘系数）——它自动识别并把系数直接告诉你；
-WGC 的第三方绑定会在建立会话时 access violation 打死宿主进程——它把 WGC 挪进**独立 worker 进程**，
-崩了只损失 worker，服务 **10ms 自愈重建**；取帧走共享内存双缓冲 + seqlock，**4.7ms**，
-并且只接受帧龄 <120ms 的会话，会话停更就自动退回 PrintWindow，**绝不把冻帧端给循环**。
+```bash
+python scripts/mc.py shutdown      # 关掉常驻服务
+```
 
-> **5. It makes the decisions raw Win32 leaves to you.** On a DPI-unaware window `PrintWindow` renders only
-> the top-left quarter (half resolution, coordinates need a scale factor) — Salmon detects it and tells you
-> the factor. The third-party WGC binding can kill the host process with an access violation while starting
-> a session — Salmon moves WGC into a **separate worker process**, so a crash costs only the worker and the
-> service rebuilds in **10ms**. Frames cross a shared-memory double buffer with a seqlock in **4.7ms**, and
-> `auto` only accepts a session whose newest frame is <120ms old — **a frozen frame is never served to a loop.**
+---
 
-**6. 失败不返回"0 条"，而是给出下一步。**
-找不到目标时返回的是"这次用了哪个捕获形态、为什么没找到、该换哪条命令"，附带 `hint` / `must_read`。
-省下来的排查时间，比任何单项指标都值钱。
+## 5. 版本与新增能力
 
-> **6. Failure returns a next step, not "0 results".** When nothing matches, the response says which capture
-> backend was used, why it likely missed, and which command to try — via `hint` / `must_read`. The debugging
-> time this saves outweighs any single benchmark.
+| 版本 | 新增 |
+|---|---|
+| **v1.6.1** | **图标记通道**：`find-icon`（无模板按几何+对比度找图标）、`icon-click`（找+点一步，含 `--dry-run` / `--verify`）、`diff`（截图差异量化，回答「这一点到底生效没有」）。解决「看得见、点不到」的纯图形按钮 |
+| v1.6.0 | **语义读取通道（UIA）**：`uia-list` / `uia-click` / `uia-read`。不截图不 OCR，直接读控件登记表；按名字点按钮，Invoke 模式不动鼠标不抢前台、被遮挡也能点 |
+| v1.5.0 | **WGC 捕获**：被遮挡 / DPI 缩放的窗口都能满分辨率实时取帧；游戏级操控（`move-rel` / `mouse-hold`）；`guard` 本地反射回路 |
+| v1.3.6 | 首个公开版 |
 
-**7. 指标不许虚高。**
-`guard` 分开报"轮询次数"和"真正换了内容的帧数"——推送式取帧把轮询当感知会虚高一个数量级；
-`probe` 一条命令把三种形态的实测耗时与可用性一次量出来。
-敢把 19 条自家缺陷写进文档的自动化项目不多，这是 §13 那张台账存在的意义。
+---
 
-> **7. Metrics may not flatter themselves.** `guard` reports poll count and *fresh-frame* count separately —
-> treating polls as perception inflates push-based capture by an order of magnitude. `probe` benchmarks all
-> three backends in one call. Few automation projects publish their own 19-entry defect ledger; that ledger
-> (§13 of `SKILL.md`) is a feature, not baggage.
+## 6. 隐私与安全
 
-## 它能做什么（43 个 op）· Capabilities
+- **完全本地运行**：不联网、不调用任何在线 API、不上传截图或文字。OCR 用的是随包安装的本地模型（rapidocr / onnxruntime）。
+- **只监听回环地址** `127.0.0.1:8765`，局域网其它设备访问不到。
+- 常驻服务在你执行 `shutdown` 或注销前会一直在后台；不需要时请关掉。
+- 本技能**能控制你的鼠标键盘**。在它运行期间不要让它无人值守地操作敏感程序（网银、密码管理器等）。
 
-捕获（屏抓 / PrintWindow / WGC 三形态，整屏或区域，`auto` 按 z-order 自己选）、找图（模板多尺度）、
-找字（OCR + 按文字定位并点击 + 等文字出现/消失）、找色（含实心色块判据，专治纯色小块假命中）、
-鼠标（移动/单击/双击/右键/拖拽/滚轮/**按住**）、键盘（打字/快捷键/**keyDown-keyUp**）、
-后台投递（`--via post`）、窗口（列表/从最小化自愈置顶/恢复/挪走/藏起/批量还原）、
-等待（等画面稳定，可只等**目标窗口自身**稳定，不被别处重绘误判）、`batch` 把一串动作压成一次 HTTP 往返、
-`guard` 反射回路（模型不在环）、顶部操作横幅（让人看见 agent 在干什么），以及 `front-policy` 抢前台硬开关。
+---
 
-> 43 ops: capture (three backends, full-screen or region, `auto` picks by real z-order), template matching,
-> OCR locate/click/wait-text, color-block finding (with solid-fill criteria that kill false positives on flat
-> colors), mouse (move/click/double/right/drag/scroll/**hold**), keyboard (type/hotkey/**keyDown-keyUp**),
-> background delivery, window management (list / self-healing raise from minimized / move / hide / restore all),
-> waits (screen stability, or **the target window only**, so other agents' repaints don't fool you), `batch`
-> (many actions, one HTTP round trip), `guard` (model-out-of-the-loop reflex), a top-of-screen progress
-> banner, and the `front-policy` switch.
+## 7. 排错
 
-## 为什么长这样 · Design notes
+| 现象 | 原因 / 处理 |
+|---|---|
+| `svc.py start` 报 `No module named xxx` | 依赖没装全 → `pip install -r requirements.txt` |
+| `mc.py` 报连接失败 / `Connection refused` | 常驻服务没起 → 先 `python scripts/svc.py start` |
+| 截图是黑的 / 只有桌面壁纸 | 目标是 DPI 缩放或 GPU 渲染 → 改用 `shot-wgc`；或先 `win-activate` 把窗口切前台 |
+| 点不动某个按钮 | 目标以管理员权限运行 → 你的 Python 也要以管理员启动（UIPI 边界） |
+| 按钮明明是图形却点不到 | 用 v1.6.1 的 `find-icon` / `icon-click --verify` |
+| OCR 认不出字 | `locate-text` 对字体/背景敏感，先 `shot` 看一眼实际渲染效果 |
+| 中文用户名下截图失败 | v1.5.0 已修（cv2.imwrite 在非 ASCII 路径的问题）；若仍失败，设环境变量 `SALMON_TMP` 指向纯英文目录 |
 
-- **三种捕获形态并存，而不是选一个"最好的"**：`screen` 是 GPU 合成后的真实画面，最快最真但被遮挡必瞎；
-  `pw` 抗遮挡但在 DPI 无关窗口上半分辨率；`wgc` 抗遮挡、满分辨率、坐标 1:1，代价是原生绑定的崩溃史。
-- **常驻服务**：每条命令重启一次 Python 要 2–5 秒（解释器 + 加载 cv2/OCR），常驻之后同样的动作是毫秒级。
-- **模型不在环**：实时操控的瓶颈从来不是判断力，是往返。
-- **崩溃隔离**：把会打死进程的第三方库挪进子进程，比祈祷它不出事有效。
-- **失败即诊断**：报错要能指导下一步，否则报错只是把成本转移给人。
+更细的实战复盘在 `docs/` 里，按场景拆分（banner、安装器与提权、微信开发者工具、文件对话框、
+沙箱启动 GUI、网页表单与输入法、色彩通道、长跑闭环）。**撞到墙了再去翻，没撞到不用读。**
 
-> - **Three capture backends on purpose.** `screen` is the composited truth — fastest, but blind when occluded.
->   `pw` survives occlusion but renders half resolution on DPI-unaware windows. `wgc` survives occlusion at
->   full resolution with 1:1 coordinates, at the price of a crash-prone native binding.
-> - **A resident service**, because restarting Python per command costs 2–5s.
-> - **Model out of the loop**, because the bottleneck of real-time control is round trips, not judgment.
-> - **Crash isolation**, because moving a process-killing library into a child beats hoping it behaves.
-> - **Errors as diagnostics**, because an error message that doesn't guide the next step just moves cost to humans.
+---
 
-## 已知边界（如实写，别绕过）· Known limits
+## 8. 目录约定
 
-- 只支持 Windows 真实桌面会话；远程桌面 / 锁屏 / 虚拟显示拿不到画面。
-- **UIPI 提权窗口点不动**（管理员权限进程），系统边界，不是实现缺陷。
-- **DirectX 独占全屏**仍可能给黑帧，窗口化 / 无边框窗口才稳。
-- **联机游戏的反作弊是红线**（EAC / BattlEye / ACE 及各类服务端检测），本技能不用于任何线上对战。
-- 中文输入法会吃掉部分 ASCII 键；高频连点会被目标 UI 线程合并（需 ≥50ms 间隔或在 `batch` 里加 `sleep`）。
-- 屏幕几何会变（改缩放、投屏、换显示器都会），**任何缓存坐标都必须每帧从系统重取**。
-- 有语义树可用的普通软件，**优先用客户端自带的按窗口取语义方案**；本技能的价值在像素与速度那一侧。
-- 单点抓图速度不构成对"自己写 Win32"的优势：原生 `PrintWindow` 自己 P/Invoke 也是 12ms 量级。
-  领先的是**开箱可用 + 形态自动选 + 定位与出手闭环**这一整套，以及遮挡 / 自绘 / 实时这三类场景里没有替代者。
+`SKILL.md` 是唯一完整手册。它内部引用附录时用的是**相对路径** `docs/xxx`，
+相对于 `SKILL.md` 所在目录解析——所以整个文件夹必须保持现在的结构，不要拆开。
 
-> - Windows interactive sessions only; RDP / lock screen / virtual displays yield black frames.
-> - **UIPI-elevated windows cannot be driven** — an OS boundary, not a bug.
-> - **DirectX exclusive fullscreen** may still return black; borderless/windowed is reliable.
-> - **Online games with anti-cheat are a hard red line** (EAC / BattlEye / ACE / server-side detection).
->   This skill is not for competitive play.
-> - CJK IMEs swallow some ASCII keys; sub-50ms click bursts get coalesced by the target UI thread.
-> - Display geometry changes mid-session (scaling, casting, monitors) — **re-read coordinates every frame**.
-> - If a proper element tree is available, **prefer your client's built-in per-window semantic tools**;
->   Salmon's value is the pixels-and-speed half.
-> - Raw capture speed is not an advantage over hand-written Win32 (`PrintWindow` via P/Invoke is also ~12ms).
->   What leads is the packaged whole: automatic backend choice, alignment, locating and actuation in one loop —
->   and having no substitute in occluded / custom-drawn / real-time scenarios.
+---
 
-## 测量条件 · How this was measured
+## 9. 许可
 
-同机同屏 1920×1200（换显示配置数字会变，结论方向不变）；靶子是自绘 tkinter 窗口（物理 782×648，60fps 动球）；
-遮挡物做成靶子的 owned window，保证"只盖住靶子、不压别的窗口"；**模型不在环**；
-各家每项取 5 次中位数；2026-10-03 实测。对比对象版本：GitHub 最火桌面控制 4.0.10、
-某 agent 客户端自带 computer-use 0.1.0（Rust）、Windows 原生 PowerShell + .NET（零安装）。
-
-> One machine, one display at 1920×1200 (absolute numbers move with display config; the ordering doesn't).
-> Target: a custom-drawn tkinter window (782×648 physical, ball animating at 60fps). The occluder is created
-> as an **owned window of the target**, so it covers only the target and never another agent's window.
-> Model out of the loop; median of 5 per cell; measured 2026-10-03. Compared against: the most popular
-> desktop-control MCP on GitHub v4.0.10, an agent client's built-in computer-use v0.1.0 (Rust),
-> and Windows-native PowerShell + .NET (zero install).
-
-## 版本与缺陷台账 · Version & defect ledger
-
-`SKILL.md` 的 §13 是一张 19 条的缺陷台账：每条写"什么时候发现、现在还在不在、用什么绕"。
-这是本项目最有价值的部分之一——新接手的人不必重新交同一份学费。当前版本 v1.5.0。
-
-> §13 of `SKILL.md` is a 19-entry defect ledger: when each issue was found, whether it still bites,
-> and what works around it. It is arguably the most valuable part of this project — nobody has to pay
-> the same tuition twice. Current version: v1.5.0.
-
-## 许可 · License
-
-MIT.
+见 `LICENSE`（若包内未附带，则本技能按原仓库授权方式使用）。
